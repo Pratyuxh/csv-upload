@@ -18,16 +18,35 @@ const csvSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Multer storage (you can keep this as a temporary storage, or remove if unnecessary)
+// Directory path for CSV uploads
+const uploadDir = path.join(__dirname, '..', 'uploads', 'csv');
+
+// Ensure that the directory exists
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, path.join(__dirname, '..', '/uploads/csv'));  // Temp directory for file upload before parsing
+    // Make sure the upload directory exists before saving
+    cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     cb(null, file.fieldname + '-' + uniqueSuffix);
   }
 });
+
+// Multer storage (you can keep this as a temporary storage, or remove if unnecessary)
+// const storage = multer.diskStorage({
+//   destination: function (req, file, cb) {
+//     cb(null, path.join(__dirname, '..', '/uploads/csv'));  // Temp directory for file upload before parsing
+//   },
+//   filename: function (req, file, cb) {
+//     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+//     cb(null, file.fieldname + '-' + uniqueSuffix);
+//   }
+// });
 
 // Static functions for multer upload
 csvSchema.statics.uploadedCSV = multer({ storage: storage, limits: { fileSize: 1 * 1024 * 1024 } }).single('csv');
