@@ -3,78 +3,98 @@ const fs = require('fs');
 const path = require('path');
 const papa = require('papaparse');
 
-
-//render homepage
+// Render homepage
 module.exports.homePage = async (req, res) => {
-  let files = await CSVFile.find({});
-  res.render('home',{
-    title: 'CSV Upload | Home',
-    files: files
-  });
- 
-}
+  try {
+    let files = await CSVFile.find({});
+    res.render('home', {
+      title: 'CSV Upload | Home',
+      files: files
+    });
+  } catch (err) {
+    console.error('Error fetching files:', err);
+    req.flash('error', 'Unable to fetch files');
+    return res.redirect('back');
+  }
+};
 
-//create and parse CSV
+// Create and parse CSV, store data in MongoDB
 module.exports.uploadFile = (req, res) => {
+  CSVFile.uploadedCSV(req, res, async function (err) {
+    if (err) {
+      req.flash('error', 'Error uploading file: ' + err.message);
+      return res.redirect('back');
+    }
 
-  CSVFile.uploadedCSV(req, res, async function(err){
-    try{
-
-      let csvFile = await CSVFile.findOne({name:req.file.originalname});
-      if(csvFile){
-        req.flash('error', 'CSV already exists! 😧')
+    try {
+      // Check if CSV with the same name already exists
+      let csvFile = await CSVFile.findOne({ name: req.file.originalname });
+      if (csvFile) {
+        req.flash('error', 'CSV already exists! 😧');
         return res.redirect('back');
       }
 
-      //parsing CSV using papaparse
+      // Read and parse CSV using papaparse
       const CSVFileUP = req.file.path;
       const csvData = fs.readFileSync(CSVFileUP, 'utf8');
 
-      const conversedFile = papa.parse(csvData, { 
-        header: false 
-      
-      });
+      const parsedFile = papa.parse(csvData, { header: false });
 
-      //allowing only CSV input type
-      if(req.file && req.file.mimetype == 'text/csv'){
-        //inserting the converted JSON to DB
-        let csvFile = CSVFile.create({
+      // Check file type
+      if (req.file && req.file.mimetype === 'text/csv') {
+        // Inserting the parsed data directly into the database
+        let csvFile = new CSVFile({
           name: req.file.originalname,
-          file: conversedFile.data
+          data: parsedFile.data  // Save the parsed CSV data
         });
+
+        await csvFile.save();
+
         req.flash('success', 'CSV uploaded successfully 🤙');
         return res.redirect('back');
-      }else{
-        req.flash('error', 'only CSV file allowed');
+      } else {
+        req.flash('error', 'Only CSV files are allowed');
         return res.redirect('back');
       }
-
-
-    }catch(err){
-      //cathching errors and rendering common error page in the FE along with notification
-      console.log("error", err);
-      req.flash('error', 'something went wrong ☹️');
+    } catch (err) {
+      console.error('Error during file processing:', err);
+      req.flash('error', 'Something went wrong ☹️');
       return res.render('servererror');
-      
-      
+    } finally {
+      // Delete the temp file after processing
+      if (req.file && req.file.path) {
+        fs.unlinkSync(req.file.path);
+      }
     }
-  })
-}
-
-//display CSV Data
-module.exports.displayCSV = async (req, res) => {
-  let displayData = await CSVFile.findById(req.params.id);
-  return res.render('table',{
-    title: 'CSV Upload | Details',
-    file: displayData.name,
-    keys: displayData.file[0],
-    results: displayData.file
-  })
+  });
 };
 
-//delete CSV from DB
+// Display CSV Data
+module.exports.displayCSV = async (req, res) => {
+  try {
+    let displayData = await CSVFile.findById(req.params.id);
+    return res.render('table', {
+      title: 'CSV Upload | Details',
+      file: displayData.name,
+      keys: displayData.data[0],  // Assuming first row contains headers
+      results: displayData.data   // Display all rows from parsed CSV
+    });
+  } catch (err) {
+    console.error('Error fetching CSV data:', err);
+    req.flash('error', 'Unable to display CSV data');
+    return res.redirect('back');
+  }
+};
+
+// Delete CSV from MongoDB
 module.exports.deleteCSV = async (req, res) => {
-  let deleteCSV = await CSVFile.findByIdAndDelete(req.params.id);
-  req.flash('success', 'CSV removed successfully 🤘');
-  return res.redirect('back');
-}
+  try {
+    await CSVFile.findByIdAndDelete(req.params.id);
+    req.flash('success', 'CSV removed successfully 🤘');
+    return res.redirect('back');
+  } catch (err) {
+    console.error('Error deleting CSV:', err);
+    req.flash('error', 'Unable to delete CSV');
+    return res.redirect('back');
+  }
+};

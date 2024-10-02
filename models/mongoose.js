@@ -1,37 +1,71 @@
 const mongoose = require('mongoose');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
+const csvParser = require('csv-parser');  // Library to parse CSV
 
-const CSV_PATH = path.join('/uploads/csv');
-
-//defining Schema for CSV data storage
+// Define the Schema for CSV data storage
 const csvSchema = new mongoose.Schema({
-  name:{
+  name: {
     type: String,
-    required: true
+    required: true,
   },
-  file:{
-    type: Array
+  data: {
+    type: Array,  // Array of objects to store parsed CSV data
+    required: true,
   }
-},{
+}, {
   timestamps: true
 });
 
-//multer storage
+// Multer storage (you can keep this as a temporary storage, or remove if unnecessary)
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, path.join(__dirname,'..', CSV_PATH));
+    cb(null, path.join(__dirname, '..', '/uploads/csv'));  // Temp directory for file upload before parsing
   },
   filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
-    cb(null, file.fieldname + '-' + uniqueSuffix)
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix);
   }
 });
 
-//static functions
-csvSchema.statics.uploadedCSV = multer({storage: storage, limits:{fileSize: 1 * 1024 * 1024}}).single('csv');
-csvSchema.statics.csvPath = CSV_PATH;
+// Static functions for multer upload
+csvSchema.statics.uploadedCSV = multer({ storage: storage, limits: { fileSize: 1 * 1024 * 1024 } }).single('csv');
 
-//exports
-const CSVFile = mongoose.model('CSVFile', csvSchema)
-module.exports =  CSVFile;
+// Function to parse CSV and store in MongoDB
+csvSchema.statics.saveCSVDataToDB = async function (req, res) {
+  if (!req.file) {
+    return res.status(400).send('No file uploaded');
+  }
+
+  const csvData = [];
+  const filePath = req.file.path;
+
+  // Read and parse the CSV file
+  fs.createReadStream(filePath)
+    .pipe(csvParser())
+    .on('data', (row) => {
+      csvData.push(row);  // Push each row into csvData array
+    })
+    .on('end', async () => {
+      // After CSV is fully parsed, save data to MongoDB
+      const csvRecord = new this({
+        name: req.file.originalname,
+        data: csvData
+      });
+
+      try {
+        await csvRecord.save();  // Save parsed data in MongoDB
+        res.status(200).send('File successfully processed and data stored in MongoDB');
+      } catch (err) {
+        res.status(500).send('Error storing data in MongoDB: ' + err.message);
+      }
+
+      // Optionally, delete the temp file after parsing
+      fs.unlinkSync(filePath);
+    });
+};
+
+// Export the CSVFile model
+const CSVFile = mongoose.model('CSVFile', csvSchema);
+module.exports = CSVFile;
